@@ -7,7 +7,7 @@
         "ssm:SendCommand"
       ],
       "Resource": [
-        "arn:aws:ec2:eu-central-1:675962431653:instance/i-0c4c19887e7f11bbb",
+        "arn:aws:ec2:eu-central-1:<AWS_ACCOUNT_ID>:instance/<EC2_INSTANCE_ID>",
         "arn:aws:ssm:eu-central-1::document/AWS-RunShellScript"
       ]
     },
