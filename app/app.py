@@ -5,7 +5,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Docker CI/CD AWS Pipeline v2 is working"
+    return "Docker CI/CD AWS Pipeline V2 is working!"
 
 
 @app.route("/health")
