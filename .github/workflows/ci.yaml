@@ -38,7 +38,6 @@ jobs:
           pytest
 
 
-  
   docker:
     runs-on: ubuntu-latest
     needs: test
@@ -49,10 +48,8 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t docker-cicd-aws:latest .
+          docker build -t docker-cicd-aws:${GITHUB_SHA} .
 
-
-  
   push-to-ecr:
     runs-on: ubuntu-latest
     needs: docker
@@ -82,19 +79,19 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      
+    
       - name: Build Docker image
         run: |
-          docker build -t docker-cicd-aws:latest .
+          docker build -t docker-cicd-aws:${GITHUB_SHA} .
 
       
       - name: Tag Docker image
         run: |
-          docker tag docker-cicd-aws:latest \
-            675962431653.dkr.ecr.eu-central-1.amazonaws.com/docker-cicd-aws:latest
+          docker tag docker-cicd-aws:${GITHUB_SHA} \
+            675962431653.dkr.ecr.eu-central-1.amazonaws.com/docker-cicd-aws:${GITHUB_SHA}
 
-      
+
       - name: Push Docker image
         run: |
           docker push \
-            675962431653.dkr.ecr.eu-central-1.amazonaws.com/docker-cicd-aws:latest
+            675962431653.dkr.ecr.eu-central-1.amazonaws.com/docker-cicd-aws:${GITHUB_SHA}
