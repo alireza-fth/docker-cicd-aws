@@ -82,6 +82,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::675962431653:role/GitHubActionsDockerCICD
+          role-session-name: GitHubActions
           aws-region: eu-central-1
 
       - name: Verify AWS identity
