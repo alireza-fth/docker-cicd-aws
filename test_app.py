@@ -6,7 +6,7 @@ def test_home():
     response = client.get("/")
 
     assert response.status_code == 200
-    assert response.data == b"Docker CI/CD AWS Pipeline is working!"
+    assert response.data == b"Docker CI/CD AWS Pipeline V2 is working!"
 
 
 def test_health():
