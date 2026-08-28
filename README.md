@@ -45,7 +45,7 @@ The project demonstrates an automated deployment workflow where every push to th
 
 ## Project Overview
 
-This project demonstrates how to build a production-style CI/CD workflow for a Dockerized Python application on AWS.
+This project demonstrates how to build an automated CI/CD pipeline for a Dockerized Python application on AWS.
 
 Instead of manually connecting to the EC2 instance and deploying every new version, GitHub Actions automatically performs the complete deployment process.
 
@@ -55,7 +55,7 @@ The pipeline performs the following steps:
 2. Install Python dependencies
 3. Run automated tests with Pytest
 4. Build the Docker image
-5. Authenticate with AWS using GitHub OIDC
+5. Authenticate to AWS using GitHub OIDC
 6. Authenticate with Amazon ECR
 7. Push the Docker image to ECR
 8. Send a deployment command to EC2 using AWS Systems Manager
@@ -123,7 +123,7 @@ Response:
 }
 ```
 
-The health endpoint can be used to verify that the application is running correctly after deployment.
+The health endpoint provides a simple way to verify that the application is running correctly after deployment.
 
 ## Application Structure
 
@@ -216,11 +216,9 @@ Run tests locally:
 pytest
 ```
 
-The CI pipeline executes the same tests automatically before building and deploying the application.
+GitHub Actions executes the tests automatically before building and deploying the application.
 
 If a test fails, the pipeline stops and the application is not deployed.
-
-This provides a basic quality gate:
 
 ```text
 Code
@@ -242,24 +240,13 @@ The workflow is located at:
 .github/workflows/ci.yaml
 ```
 
-The pipeline is triggered by:
-
-```yaml
-on:
-  push:
-    branches:
-      - main
-
-  pull_request:
-    branches:
-      - main
-```
+The pipeline is triggered by pushes and pull requests targeting the `main` branch.
 
 ### Pipeline Stages
 
 #### 1. Test
 
-GitHub Actions creates an Ubuntu runner and:
+GitHub Actions:
 
 * Checks out the repository
 * Installs Python 3.12
@@ -280,27 +267,29 @@ The image is tagged using the Git commit SHA:
 docker-cicd-aws:<GITHUB_SHA>
 ```
 
-Using the commit SHA provides a unique and immutable image version.
+Using the commit SHA provides a unique and immutable version for each deployment.
 
 #### 3. Push to Amazon ECR
 
-GitHub Actions authenticates to AWS using:
+GitHub Actions authenticates to AWS using GitHub OIDC:
 
 ```text
 GitHub OIDC
-        ↓
+     ↓
 AWS IAM Role
-        ↓
+     ↓
 Amazon ECR
 ```
 
-The image is then pushed to:
+The image is pushed to the project's ECR repository.
+
+Example format:
 
 ```text
-675962431653.dkr.ecr.eu-central-1.amazonaws.com/docker-cicd-aws
+<AWS_ACCOUNT_ID>.dkr.ecr.eu-central-1.amazonaws.com/docker-cicd-aws
 ```
 
-### Immutable Image Tags
+## Immutable Image Tags
 
 The ECR repository uses immutable image tags.
 
@@ -313,85 +302,59 @@ latest
 the pipeline uses the Git commit SHA:
 
 ```text
+<GITHUB_SHA>
+```
+
+For example:
+
+```text
 0562c8305d05e24b7afd2e7b0ddd805a3bea0f7c
 ```
 
 This prevents an existing image tag from being overwritten and provides a unique version for every deployment.
 
-## AWS IAM OIDC
+## GitHub OIDC Authentication
 
-GitHub Actions does not use long-term AWS Access Keys.
+GitHub Actions does not use long-term AWS access keys.
 
-Instead, the workflow uses GitHub's OpenID Connect integration.
+Instead, the workflow uses GitHub OpenID Connect (OIDC) to obtain temporary AWS credentials.
 
-The GitHub repository is trusted through an AWS IAM OIDC Identity Provider:
+The AWS IAM OIDC provider is:
 
 ```text
 token.actions.githubusercontent.com
 ```
 
-The GitHub Actions workflow assumes:
+The GitHub Actions workflow assumes an AWS IAM role.
+
+The trust policy restricts access to the specific repository and `main` branch:
 
 ```text
-GitHubActionsDockerCICD
+repo:<GITHUB_USERNAME>/docker-cicd-aws:ref:refs/heads/main
 ```
 
-Role.
+This prevents unrelated repositories from assuming the deployment role.
 
-The trust policy restricts access to:
+## IAM Permissions
 
-```text
-repo:alireza-fth/docker-cicd-aws:ref:refs/heads/main
-```
-
-This means the AWS role is restricted to the specific repository and `main` branch.
-
-## IAM Roles
-
-### GitHub Actions Role
-
-```text
-GitHubActionsDockerCICD
-```
-
-The role provides permissions required to:
+The GitHub Actions IAM role provides permissions required to:
 
 * Authenticate with Amazon ECR
 * Push Docker images to ECR
-* Send deployment commands through SSM
+* Send deployment commands through AWS Systems Manager
 
-Policies include:
+The EC2 IAM role provides permissions required to:
 
-```text
-GitHubActionsECRPush
-GitHubActionsSSMDeploy
-```
-
-### EC2 Role
-
-```text
-DockerCICDEC2Role
-```
-
-The EC2 instance uses this IAM role instead of storing AWS Access Keys.
-
-Attached AWS managed policies:
-
-```text
-AmazonEC2ContainerRegistryReadOnly
-AmazonSSMManagedInstanceCore
-```
-
-This allows EC2 to:
-
-* Pull Docker images from ECR
+* Pull images from Amazon ECR
 * Communicate with AWS Systems Manager
+
+No AWS access keys are stored inside the GitHub repository.
 
 ## AWS Systems Manager
 
 The deployment process uses AWS Systems Manager instead of storing an SSH private key in GitHub.
 
-GitHub Actions sends an SSM command to the EC2 instance:
+The deployment flow is:
 
 ```text
 GitHub Actions
@@ -403,47 +366,7 @@ SSM SendCommand
 EC2
 ```
 
-The EC2 instance then executes the deployment commands.
-
-## Deployment Process
-
-During deployment, SSM executes commands similar to:
-
-```bash
-aws ecr get-login-password --region eu-central-1 | \
-sudo docker login \
---username AWS \
---password-stdin \
-675962431653.dkr.ecr.eu-central-1.amazonaws.com
-```
-
-Pull the new image:
-
-```bash
-sudo docker pull \
-675962431653.dkr.ecr.eu-central-1.amazonaws.com/docker-cicd-aws:<GITHUB_SHA>
-```
-
-Stop the previous container:
-
-```bash
-sudo docker stop docker-cicd-app || true
-```
-
-Remove the previous container:
-
-```bash
-sudo docker rm docker-cicd-app || true
-```
-
-Start the new container:
-
-```bash
-sudo docker run -d \
-  --name docker-cicd-app \
-  -p 80:5000 \
-  675962431653.dkr.ecr.eu-central-1.amazonaws.com/docker-cicd-aws:<GITHUB_SHA>
-```
+The EC2 instance receives and executes the deployment commands through SSM.
 
 ## EC2 Configuration
 
@@ -479,30 +402,79 @@ Port mapping:
 EC2 :80 → Container :5000
 ```
 
+## ECR Repository
+
+The Docker image is stored in an Amazon ECR repository:
+
+```text
+docker-cicd-aws
+```
+
+The registry URI follows this format:
+
+```text
+<AWS_ACCOUNT_ID>.dkr.ecr.eu-central-1.amazonaws.com/docker-cicd-aws
+```
+
+Actual AWS account and infrastructure identifiers are intentionally not included in this public documentation.
+
 ## Security Group
 
-Inbound traffic:
+Inbound traffic is configured as follows:
 
-| Protocol | Port | Source    | Purpose            |
-| -------- | ---: | --------- | ------------------ |
-| TCP      |   22 | My IP     | SSH administration |
-| TCP      |   80 | 0.0.0.0/0 | HTTP application   |
+| Protocol | Port | Source           | Purpose            |
+| -------- | ---: | ---------------- | ------------------ |
+| TCP      |   22 | Administrator IP | SSH administration |
+| TCP      |   80 | 0.0.0.0/0        | HTTP application   |
 
-SSH access is restricted to the administrator's IP address.
+SSH access should be restricted to trusted IP addresses.
 
 The application is publicly accessible through HTTP.
 
+## Deployment Process
+
+During deployment, SSM executes commands to:
+
+1. Authenticate Docker with Amazon ECR
+2. Pull the new image
+3. Stop the existing container
+4. Remove the existing container
+5. Start the new container
+
+Conceptually:
+
+```bash
+aws ecr get-login-password --region eu-central-1
+```
+
+```bash
+docker pull <ECR_IMAGE>:<GITHUB_SHA>
+```
+
+```bash
+docker stop docker-cicd-app || true
+```
+
+```bash
+docker rm docker-cicd-app || true
+```
+
+```bash
+docker run -d \
+  --name docker-cicd-app \
+  -p 80:5000 \
+  <ECR_IMAGE>:<GITHUB_SHA>
+```
+
 ## Verification
 
-After deployment, the application can be tested from the local machine.
-
-Home endpoint:
+After deployment, the application can be tested using the EC2 public IP:
 
 ```powershell
 curl.exe http://<EC2_PUBLIC_IP>/
 ```
 
-Example response:
+Expected response:
 
 ```text
 Docker CI/CD AWS Pipeline V2 is working!
@@ -526,21 +498,21 @@ Expected response:
 
 The pipeline was tested by modifying the Flask application's response.
 
-The first test intentionally failed because the application response changed while the test still expected the previous value.
+Initially, the application response was changed while the automated test still expected the previous response.
 
-GitHub Actions correctly stopped the pipeline:
+As a result, GitHub Actions correctly stopped the pipeline:
 
 ```text
 pytest
  ↓
 FAILED
  ↓
-Build skipped
+Build stopped
  ↓
-Deployment skipped
+Deployment stopped
 ```
 
-After updating the test to match the new application version, the pipeline completed successfully:
+After updating the test to match the new application response, the pipeline completed successfully:
 
 ```text
 Tests              ✅
@@ -553,14 +525,14 @@ Container Running  ✅
 HTTP Response      ✅
 ```
 
-This confirmed that the CI/CD pipeline works from source-code change through production deployment.
+This confirmed the complete CI/CD workflow from source-code change to EC2 deployment.
 
 ## Local Development
 
 Clone the repository:
 
 ```powershell
-git clone https://github.com/alireza-fth/docker-cicd-aws.git
+git clone https://github.com/<GITHUB_USERNAME>/docker-cicd-aws.git
 ```
 
 Navigate to the project:
@@ -602,7 +574,7 @@ docker run -d `
 
 ## Deployment Workflow
 
-For future changes, the deployment process is simply:
+For future changes:
 
 ```powershell
 git add .
@@ -632,6 +604,28 @@ Application Updated
 
 No manual SSH deployment is required.
 
+## Security Considerations
+
+This repository is intended for educational and portfolio purposes.
+
+The following sensitive information should never be committed to GitHub:
+
+```text
+AWS Access Keys
+AWS Secret Access Keys
+AWS Session Tokens
+SSH Private Keys
+.pem files
+.env files containing secrets
+GitHub Personal Access Tokens
+API Keys
+Passwords
+```
+
+The project uses GitHub OIDC instead of storing long-term AWS credentials in GitHub.
+
+Infrastructure-specific identifiers such as AWS Account IDs, EC2 Instance IDs, public IP addresses, and private infrastructure details are intentionally omitted from this public README.
+
 ## Project Highlights
 
 This project demonstrates practical experience with:
@@ -651,20 +645,20 @@ This project demonstrates practical experience with:
 * AWS networking
 * Container deployment
 * Health checks
-* Infrastructure security
 * Cloud troubleshooting
+* Secure credential management
 
 ## Future Improvements
 
 Possible improvements include:
 
 * Add HTTPS with an Application Load Balancer
-* Add domain name and Route 53
-* Add Amazon CloudWatch monitoring
+* Add a custom domain using Route 53
+* Add CloudWatch monitoring
 * Add automated rollback
 * Add blue/green deployments
 * Add Docker image vulnerability scanning
-* Add deployment health checks
+* Add automated deployment health checks
 * Add ECS/Fargate deployment
 * Add Terraform infrastructure provisioning
 * Add GitHub Actions deployment environments
@@ -673,10 +667,10 @@ Possible improvements include:
 
 ## Repository
 
-GitHub:
+GitHub repository:
 
 ```text
-https://github.com/alireza-fth/docker-cicd-aws
+https://github.com/<GITHUB_USERNAME>/docker-cicd-aws
 ```
 
 ## Author
