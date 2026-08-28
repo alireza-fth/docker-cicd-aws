@@ -11,12 +11,10 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
 
-  # -------------------------
-  # 1. Run Python tests
-  # -------------------------
   test:
     runs-on: ubuntu-latest
 
@@ -39,10 +37,6 @@ jobs:
         run: |
           pytest
 
-
-  # -------------------------
-  # 2. Build Docker image
-  # -------------------------
   docker:
     runs-on: ubuntu-latest
     needs: test
@@ -55,28 +49,42 @@ jobs:
         run: |
           docker build -t docker-cicd-aws:latest .
 
-
-  # -------------------------
-  # 3. Push image to Amazon ECR
-  # -------------------------
   push-to-ecr:
     runs-on: ubuntu-latest
     needs: docker
 
     permissions:
-      id-token: write
       contents: read
+      id-token: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Show GitHub context
-        run: |
-          echo "Repository: ${{ github.repository }}"
-          echo "Ref: ${{ github.ref }}"
-          echo "Ref name: ${{ github.ref_name }}"
-          echo "Event: ${{ github.event_name }}"
+      - name: Debug OIDC token claims
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = await core.getIDToken('sts.amazonaws.com');
+
+            const payload = JSON.parse(
+              Buffer.from(
+                token.split('.')[1],
+                'base64url'
+              ).toString()
+            );
+
+            console.log(JSON.stringify({
+              iss: payload.iss,
+              aud: payload.aud,
+              sub: payload.sub,
+              repository: payload.repository,
+              repository_id: payload.repository_id,
+              repository_owner: payload.repository_owner,
+              repository_owner_id: payload.repository_owner_id,
+              ref: payload.ref,
+              event_name: payload.event_name
+            }, null, 2));
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5
@@ -89,17 +97,21 @@ jobs:
         run: |
           aws sts get-caller-identity
 
+
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
+
 
       - name: Build Docker image
         run: |
           docker build -t docker-cicd-aws:latest .
 
+
       - name: Tag Docker image
         run: |
           docker tag docker-cicd-aws:latest \
             675962431653.dkr.ecr.eu-central-1.amazonaws.com/docker-cicd-aws:latest
+
 
       - name: Push Docker image to ECR
         run: |
